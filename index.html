@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archen — Browser AI</title>
+<style>
+  :root {
+    --bg:#0e1022; --bg2:#181b3a; --line:#2b2f57; --text:#eef1ff; --dim:#8b93b8;
+    --cyan:#6ee7f5; --violet:#a78bfa; --ok:#6ee7a0; --err:#ff8080;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { height:100%; }
+  body {
+    background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif;
+    display:flex; flex-direction:column; align-items:center;
+  }
+  .wrap { width:100%; max-width:640px; height:100vh; display:flex; flex-direction:column; padding:16px; }
+  .title { display:flex; align-items:center; gap:10px; padding:6px 4px 14px; }
+  .title .dot { width:10px; height:10px; border-radius:50%; background:linear-gradient(135deg,var(--cyan),var(--violet)); }
+  .title b { font-size:16px; }
+  .title span { font-size:12px; color:var(--dim); }
+
+  .status {
+    background:var(--bg2); border:1px solid var(--line); border-radius:12px;
+    padding:16px; margin-bottom:14px; font-size:13px; color:var(--dim); line-height:1.6;
+  }
+  .status.ok { display:none; }
+  .bar { height:8px; border-radius:6px; background:#0a0c1c; overflow:hidden; margin-top:10px; }
+  .bar > div { height:100%; width:0%; background:linear-gradient(90deg,var(--cyan),var(--violet)); transition:width .2s; }
+
+  .messages { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:14px; padding:4px; }
+  .msg { max-width:85%; padding:10px 13px; border-radius:12px; font-size:14px; line-height:1.5; white-space:pre-wrap; }
+  .msg.user { align-self:flex-end; background:linear-gradient(135deg,var(--cyan),var(--violet)); color:#08121f; }
+  .msg.bot  { align-self:flex-start; background:var(--bg2); border:1px solid var(--line); }
+  .msg.err  { align-self:flex-start; background:var(--bg2); border:1px solid var(--err); color:var(--err); }
+
+  .row { display:flex; gap:8px; padding-top:12px; }
+  input#q {
+    flex:1; background:var(--bg2); border:1px solid var(--line); border-radius:11px;
+    padding:11px 13px; color:var(--text); font-size:14px; outline:none; font-family:inherit;
+  }
+  input#q:focus { border-color:var(--cyan); }
+  input#q:disabled { opacity:.5; }
+  button#send {
+    border:none; border-radius:11px; padding:0 18px; font-size:13px; font-weight:600; cursor:pointer;
+    background:linear-gradient(90deg,var(--cyan),var(--violet)); color:#08121f;
+  }
+  button#send:disabled { opacity:.5; cursor:default; }
+  .foot { font-size:11px; color:var(--dim); text-align:center; padding-top:10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title"><div class="dot"></div><b>Archen</b><span>— runs entirely in this browser tab, no server needed</span></div>
+  <div class="status" id="status">Loading the AI model into your browser (~470 MB, first time only — it's saved after that)…
+    <div class="bar"><div id="bar"></div></div>
+  </div>
+  <div class="messages" id="messages"></div>
+  <div class="row">
+    <input id="q" type="text" placeholder="Getting ready…" disabled autocomplete="off">
+    <button id="send" disabled>Send</button>
+  </div>
+  <div class="foot">Small on-device model — quick answers, not as sharp as the full Archen app.</div>
+</div>
+
+<script type="module">
+  import { Wllama } from 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.6.0/esm/index.js';
+
+  const $ = id => document.getElementById(id);
+  const statusEl = $('status'), barEl = $('bar'), msgsEl = $('messages'), qEl = $('q'), sendEl = $('send');
+
+  const CONFIG_PATHS = {
+    default: 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.6.0/esm/wasm/wllama.wasm',
+  };
+  const wllama = new Wllama(CONFIG_PATHS);
+
+  const SYSTEM_PROMPT =
+    'You are Archen, a friendly, warm AI assistant. Keep answers short, clear, and kind. Use simple language.';
+  const history = [];
+
+  function addMsg(role, text) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    div.textContent = text;
+    msgsEl.appendChild(div);
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+    return div;
+  }
+
+  async function init() {
+    try {
+      await wllama.loadModelFromHF(
+        { repo: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF', file: 'qwen2.5-0.5b-instruct-q4_k_m.gguf' },
+        { progressCallback: ({ loaded, total }) => {
+            const pct = total ? Math.round((loaded / total) * 100) : 0;
+            barEl.style.width = pct + '%';
+            statusEl.firstChild.textContent = `Loading the AI model into your browser… ${pct}% (first time only — it's saved after that)`;
+          } }
+      );
+      statusEl.classList.add('ok');
+      qEl.disabled = false; sendEl.disabled = false;
+      qEl.placeholder = 'Ask Archen anything…';
+      qEl.focus();
+      addMsg('bot', "Hi! I'm Archen, running right here in your browser. What's up?");
+    } catch (err) {
+      statusEl.textContent = 'Could not load the AI model: ' + (err?.message || err) +
+        ' — try reloading the page, or check your internet connection.';
+      statusEl.style.borderColor = 'var(--err)'; statusEl.style.color = 'var(--err)';
+    }
+  }
+
+  let busy = false;
+  async function send() {
+    const text = qEl.value.trim();
+    if (!text || busy) return;
+    busy = true; qEl.value = ''; qEl.disabled = true; sendEl.disabled = true;
+    addMsg('user', text);
+    history.push({ role: 'user', content: text });
+    const botDiv = addMsg('bot', '');
+
+    try {
+      const stream = await wllama.createChatCompletion({
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...history],
+        stream: true,
+        max_tokens: 300,
+        temperature: 0.6,
+      });
+      let full = '';
+      for await (const chunk of stream) {
+        const delta = chunk?.choices?.[0]?.delta?.content || '';
+        if (delta) { full += delta; botDiv.textContent = full; msgsEl.scrollTop = msgsEl.scrollHeight; }
+      }
+      history.push({ role: 'assistant', content: full });
+    } catch (err) {
+      botDiv.classList.add('err');
+      botDiv.textContent = 'Something went wrong: ' + (err?.message || err);
+    } finally {
+      busy = false; qEl.disabled = false; sendEl.disabled = false; qEl.focus();
+    }
+  }
+
+  sendEl.addEventListener('click', send);
+  qEl.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+
+  init();
+</script>
+</body>
+</html>

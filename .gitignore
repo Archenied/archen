@@ -1,0 +1,10 @@
+node_modules/
+release/
+dist/
+*.asar
+*.asar.unpacked/
+*.gguf
+*.bin
+*.log
+.DS_Store
+Thumbs.db
