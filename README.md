@@ -72,6 +72,12 @@ confirm the model still downloads after the move.
 - Expect the 0.5B model to feel weak. That is a product risk, not a bug: the
   demo has to prove *speed and privacy*, and let the full app prove quality.
 
+## Contributing
+
+`main` is protected; changes land through pull requests. Branch naming, review
+expectations and the settings that need a second opinion are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Development
 
 No build step, no dependencies to install. Open `index.html` over HTTP
