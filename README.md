@@ -41,6 +41,7 @@ Events are pushed to `window.dataLayer` when present, and beaconed to
 | `generation_stopped`, `generate_error` | Quality and reliability friction |
 | `cta_click` (`inline` / `footer`) | Conversion to the full app, by placement |
 | `model_switch`, `chip_click` | Whether visitors reach for the larger model and the guided tasks |
+| `reply_complete` (`tokens`, `ms`), `regenerate`, `theme_toggle` | Real on-device speed by tier, and which UX affordances get used |
 
 Load, activation and generation events carry `model: fast|smart` so the two tiers can be compared.
 
@@ -109,6 +110,23 @@ What else was done to get better answers out of small models, all in
 Expect the 0.5B model to still feel weak on open-ended questions. That is a
 product risk, not a bug: the demo has to prove *speed and privacy*, and the
 chips and the Smarter tier exist to show it at its best.
+
+## Chat experience
+
+Patterns borrowed from the chat products people already know, kept to what a
+single file can carry:
+
+| Pattern | Seen in | Here |
+| --- | --- | --- |
+| Rendered replies (bold, lists, code blocks with copy) | ChatGPT, Claude | Minimal renderer in `index.html`; output is HTML-escaped first, so model text can never inject markup. Only `https://` links are turned into anchors. |
+| Typing indicator, then a streaming cursor | Every major assistant | Three dots until the first token, blinking cursor while streaming, painted at most once per frame |
+| Copy / Regenerate on the last reply | ChatGPT, Claude | Hover actions; Regenerate re-runs the same prompt |
+| Speed shown per reply (`1.8s · 24 tok/s · fast`) | LM Studio, Open WebUI | On-device speed *is* the pitch, so it is visible rather than hidden |
+| Enter sends, Shift+Enter newline, Esc stops | ChatGPT, Slack | Auto-growing textarea, 16px so mobile Safari does not zoom |
+| "↓ New reply" when scrolled up | ChatGPT | Auto-scroll only while the visitor is already at the bottom |
+| Empty state with a heading and suggested tasks | ChatGPT, Gemini | "What can I help with?" plus the quick-task chips |
+| Conversation survives a reload | All | Last 40 messages in `localStorage` for this browser only; "Start fresh" clears it. Never shared, never sent anywhere. |
+| Light and dark theme | All | Follows the OS, toggle in the header, remembered |
 
 ## Contributing
 
