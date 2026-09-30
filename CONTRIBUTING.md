@@ -56,8 +56,13 @@ rather than deciding alone:
 - **`n_ctx`, `MAX_TOKENS`, `MAX_HISTORY_TURNS`.** They trade answer quality
   against memory use and interact with each other. wllama's default `n_ctx` is
   1024, which overflows after a few turns — this is why it is set explicitly.
-- **The model.** A different model changes download size, speed and answer
-  quality all at once, which are the three things the demo is judged on.
+- **`MODELS` and `SAMPLING`.** A different model changes download size, speed
+  and answer quality all at once, which are the three things the demo is
+  judged on. Sampling values were chosen to stop small models looping; test a
+  change on both tiers, with a long multi-turn chat, before proposing it.
+- **`SYSTEM_PROMPT`.** Written as short rules a 0.5B model can follow. Adding
+  nuance tends to make small models worse, not better, and every sentence
+  costs context on every turn.
 - **Visitor-facing copy.** Especially the privacy claims, which have to stay
   literally true of what the page does.
 

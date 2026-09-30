@@ -23,6 +23,13 @@
                 background:linear-gradient(135deg,var(--cyan),var(--violet)); }
   .title b { font-size:16px; }
   .title span { font-size:12px; color:var(--dim); }
+  .title .tier { margin-left:auto; display:flex; gap:4px; }
+  .tier button {
+    background:transparent; border:1px solid var(--line); color:var(--dim); border-radius:8px;
+    padding:4px 9px; font-size:11px; font-family:inherit; cursor:pointer;
+  }
+  .tier button[aria-pressed="true"] { border-color:var(--cyan); color:var(--text); }
+  .tier button:disabled { opacity:.5; cursor:default; }
   .pitch { font-size:12px; color:var(--dim); padding:0 4px 14px 24px; line-height:1.5; }
   .pitch b { color:var(--text); font-weight:600; }
 
@@ -50,6 +57,17 @@
   .msg.err  { align-self:flex-start; background:var(--bg2); border:1px solid var(--err); color:var(--err); }
   .msg.note { align-self:center; max-width:100%; background:none; border:none; padding:2px;
               font-size:11px; color:var(--dim); text-align:center; }
+  .msg.note button { background:none; border:none; color:var(--cyan); font:inherit; cursor:pointer;
+                     text-decoration:underline; padding:0; }
+
+  /* Quick-task chips shown on an empty conversation */
+  .chips { display:flex; flex-wrap:wrap; gap:8px; align-self:flex-start; }
+  .chips.hidden { display:none; }
+  .chip {
+    background:var(--bg2); border:1px solid var(--line); border-radius:999px;
+    padding:7px 13px; color:var(--text); font-size:12px; font-family:inherit; cursor:pointer;
+  }
+  .chip:hover { border-color:var(--violet); }
 
   /* Inline call-to-action toward the full Archen app */
   .cta {
@@ -62,7 +80,6 @@
     font-size:13px; font-weight:600; color:#08121f;
     background:linear-gradient(90deg,var(--cyan),var(--violet));
   }
-  .cta.hidden { display:none; }
 
   .row { display:flex; gap:8px; padding-top:12px; }
   input#q {
@@ -101,6 +118,10 @@
   <header>
     <div class="title">
       <div class="dot"></div><b>Archen</b><span>— AI that runs on your device</span>
+      <div class="tier" id="tier" role="group" aria-label="Model size">
+        <button type="button" data-tier="fast" aria-pressed="true">Fast</button>
+        <button type="button" data-tier="smart" aria-pressed="false">Smarter</button>
+      </div>
     </div>
     <p class="pitch">
       Everything you type stays in this browser tab. <b>No server, no account, no logging.</b>
@@ -149,24 +170,63 @@
     ANALYTICS_ENDPOINT: '',
   };
 
-  const MODEL = { repo: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF', file: 'qwen2.5-0.5b-instruct-q4_k_m.gguf' };
+  /* ─────────────────────────────────────────────────────────────
+     Models. "fast" is the default and what phones get. "smart" is the
+     same family three times the size; it is noticeably better at
+     following instructions and at languages other than English, at the
+     cost of a ~1 GB download and more memory.
+     ───────────────────────────────────────────────────────────── */
+  const MODELS = {
+    fast:  { repo: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF', file: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+             label: 'Fast',    sizeHint: '~400 MB', minMemoryGB: 0 },
+    smart: { repo: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF', file: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+             label: 'Smarter', sizeHint: '~1 GB',   minMemoryGB: 8 },
+  };
+  const TIER_KEY = 'archen.tier';
 
   // wllama defaults to n_ctx 1024, which overflows after a few turns once
-  // the system prompt and a 300-token reply are counted. Set it explicitly
-  // and keep only the most recent turns in the prompt.
+  // the system prompt and a reply are counted. Set it explicitly and keep
+  // only the most recent turns in the prompt.
   const N_CTX = 4096;
-  const MAX_TOKENS = 300;
+  const MAX_TOKENS = 350;
   const MAX_HISTORY_TURNS = 6;   // 6 user+assistant pairs
 
-  const SYSTEM_PROMPT =
-    'You are Archen, a friendly, warm AI assistant. Keep answers short, clear, and kind. Use simple language.';
+  // Sampling. Small models loop and ramble at high temperature; a mild
+  // repeat penalty and min_p cut both without making answers flat. Keys are
+  // the llama.cpp server names the engine reads.
+  const SAMPLING = {
+    temperature: 0.5,
+    top_p: 0.9,
+    min_p: 0.05,
+    repeat_penalty: 1.1,
+    repeat_last_n: 64,
+  };
+
+  // Written for a small model: short, concrete rules it can actually follow.
+  // Every sentence here costs context on every turn, so nothing decorative.
+  const SYSTEM_PROMPT = [
+    'You are Archen, a helpful assistant running privately on the user\'s own device.',
+    'Answer in the same language the user writes in.',
+    'Be brief: answer first, then at most a few sentences of detail. Use a list only when the user asks for steps or options.',
+    'If you are not sure or do not know, say so plainly instead of guessing.',
+    'Do not repeat the question back and do not add greetings or sign-offs.',
+  ].join(' ');
+
+  // Quick tasks a small model does well. Each fills the input with a
+  // scaffold the user completes, which keeps the request narrow.
+  const CHIPS = [
+    { label: 'Summarize text',   fill: 'Summarize this in 3 short bullet points:\n\n' },
+    { label: 'Fix my writing',   fill: 'Fix the grammar and make this clearer, keep the meaning:\n\n' },
+    { label: 'Explain simply',   fill: 'Explain this simply, as if to a beginner:\n\n' },
+    { label: 'Translate',        fill: 'Translate this to English:\n\n' },
+  ];
 
   const $ = id => document.getElementById(id);
   const panel = $('panel'), panelText = $('panelText'), panelActs = $('panelActs');
   const barWrap = $('barWrap'), bar = $('bar'), msgsEl = $('messages');
   const qEl = $('q'), sendEl = $('send'), stopEl = $('stop'), formEl = $('form');
   const footNote = $('footNote'), footCta = $('footCta'), resetBtn = $('resetBtn');
-  const footSep1 = $('footSep1'), footSep2 = $('footSep2');
+  const footSep1 = $('footSep1'), footSep2 = $('footSep2'), tierEl = $('tier');
 
   const ctaUrl = CONFIG.APP_URL || CONFIG.WAITLIST_URL || '';
   const ctaIsWaitlist = !CONFIG.APP_URL && !!CONFIG.WAITLIST_URL;
@@ -188,6 +248,7 @@
     panelText.textContent = text;
     panel.className = 'panel' + (kind ? ' ' + kind : '');
     barWrap.style.display = progress ? '' : 'none';
+    bar.style.width = '0%';
     panelActs.textContent = '';
     for (const a of actions) {
       const b = document.createElement('button');
@@ -207,6 +268,37 @@
     msgsEl.scrollTop = msgsEl.scrollHeight;
     return div;
   }
+
+  // A note with one inline action, e.g. "switch to the larger model".
+  function addNote(text, action) {
+    const div = addMsg('note', text + ' ');
+    if (action) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = action.label;
+      b.addEventListener('click', action.onClick);
+      div.appendChild(b);
+    }
+    return div;
+  }
+
+  let chipsEl = null;
+  function showChips() {
+    if (chipsEl) chipsEl.remove();
+    chipsEl = document.createElement('div');
+    chipsEl.className = 'chips';
+    for (const c of CHIPS) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.textContent = c.label;
+      b.addEventListener('click', () => {
+        track('chip_click', { chip: c.label });
+        qEl.value = c.fill; qEl.focus();
+        qEl.setSelectionRange(qEl.value.length, qEl.value.length);
+      });
+      chipsEl.appendChild(b);
+    }
+    msgsEl.appendChild(chipsEl);
+  }
+  const hideChips = () => { if (chipsEl) { chipsEl.remove(); chipsEl = null; } };
 
   let ctaShown = false;
   function showCta() {
@@ -237,7 +329,7 @@
     console.warn('[Archen] No CONFIG.APP_URL or CONFIG.WAITLIST_URL set — the call-to-action is hidden.');
   }
 
-  /* ── Capability checks, before a 400 MB download is attempted ─ */
+  /* ── Capability checks, before a large download is attempted ── */
   function checkSupport() {
     if (typeof WebAssembly !== 'object' || typeof WebAssembly.instantiate !== 'function') {
       return 'This browser cannot run WebAssembly, which Archen needs. Try a recent Chrome, Edge, Firefox or Safari.';
@@ -258,58 +350,82 @@
     return null;
   }
 
-  // Coarse, privacy-safe risk probe. deviceMemory is Chromium-only and
-  // reports a rounded value; treat a missing value as "unknown, allow".
-  function isRiskyDevice() {
-    const smallRam = typeof navigator.deviceMemory === 'number' && navigator.deviceMemory <= 4;
-    const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    return smallRam || mobile;
-  }
+  // deviceMemory is Chromium-only and rounded; a missing value means
+  // "unknown". Callers decide what unknown means for them.
+  const deviceMemoryGB = () => (typeof navigator.deviceMemory === 'number' ? navigator.deviceMemory : null);
+  const isMobile = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const isRiskyDevice = () => (deviceMemoryGB() !== null && deviceMemoryGB() <= 4) || isMobile();
+  // Only recommend the larger model when we positively know there is room.
+  const canRunSmart = () => !isMobile() && deviceMemoryGB() !== null && deviceMemoryGB() >= MODELS.smart.minMemoryGB;
 
-  async function isModelCached() {
-    try {
-      const entries = await wllama.cacheManager.list();
-      return entries.some(e => (e.name || '').includes('qwen2.5-0.5b-instruct-q4_k_m'));
-    } catch { return false; }
+  /* ── Model tier ────────────────────────────────────────────── */
+  let tier = 'fast';
+  try { if (MODELS[localStorage.getItem(TIER_KEY)]) tier = localStorage.getItem(TIER_KEY); } catch {}
+
+  function renderTier() {
+    for (const b of tierEl.querySelectorAll('button')) {
+      b.setAttribute('aria-pressed', String(b.dataset.tier === tier));
+      b.title = MODELS[b.dataset.tier].sizeHint;
+    }
   }
+  const setTierButtons = enabled => { for (const b of tierEl.querySelectorAll('button')) b.disabled = !enabled; };
 
   /* ── Model loading ─────────────────────────────────────────── */
-  const wllama = new Wllama({
-    default: 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.6.0/esm/wasm/wllama.wasm',
-  });
-
+  const WASM_PATHS = { default: 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.6.0/esm/wasm/wllama.wasm' };
+  let wllama = new Wllama(WASM_PATHS);
   let downloadCtl = null;
   let ready = false;
 
+  async function isModelCached(model) {
+    try {
+      const entries = await wllama.cacheManager.list();
+      const stem = model.file.replace(/\.gguf$/, '');
+      return entries.some(e => (e.name || '').includes(stem));
+    } catch { return false; }
+  }
+
+  const safeIsMultithread = () => { try { return wllama.isMultithread(); } catch { return false; } };
+
   async function load() {
+    const model = MODELS[tier];
+    ready = false;
+    setTierButtons(false);
+    qEl.disabled = true; sendEl.disabled = true;
     downloadCtl = new AbortController();
-    const cached = await isModelCached();
-    track('load_start', { cached });
+    const cached = await isModelCached(model);
+    track('load_start', { model: tier, cached });
 
     showPanel(
-      cached ? 'Loading the model from this device…'
-             : 'Downloading the AI model into your browser. It is saved afterwards, so this only happens once.',
+      cached ? `Loading the ${model.label.toLowerCase()} model from this device…`
+             : `Downloading the ${model.label.toLowerCase()} model (${model.sizeHint}) into your browser. It is saved afterwards, so this only happens once.`,
       { progress: true, actions: [{ label: 'Cancel', onClick: () => downloadCtl?.abort() }] }
     );
 
     try {
-      await wllama.loadModelFromHF(MODEL, {
+      await wllama.loadModelFromHF(model, {
         n_ctx: N_CTX,
         signal: downloadCtl.signal,
         progressCallback: ({ loaded, total }) => {
           const pct = total ? Math.round((loaded / total) * 100) : 0;
           bar.style.width = pct + '%';
           panelText.textContent = total
-            ? `Downloading the AI model… ${pct}% (${fmtMB(loaded)} of ${fmtMB(total)}) — saved after this, so it only happens once.`
-            : `Downloading the AI model… ${fmtMB(loaded)}`;
+            ? `Downloading the ${model.label.toLowerCase()} model… ${pct}% (${fmtMB(loaded)} of ${fmtMB(total)}) — saved after this, so it only happens once.`
+            : `Downloading the ${model.label.toLowerCase()} model… ${fmtMB(loaded)}`;
         },
       });
     } catch (err) {
+      setTierButtons(true);
       if (downloadCtl.signal.aborted) {
-        track('load_cancelled');
+        track('load_cancelled', { model: tier });
         showPanel('Download cancelled.', { actions: [{ label: 'Try again', onClick: load }] });
+      } else if (tier !== 'fast') {
+        // The larger model failed (memory, or the file is unavailable).
+        // Fall back rather than leave the visitor with nothing.
+        track('load_error', { model: tier, reason: String(err?.name || 'unknown') });
+        addNote(`Could not load the ${model.label.toLowerCase()} model (${err?.message || err}). Using the fast one instead.`);
+        await switchTier('fast', { silent: true });
       } else {
-        track('load_error', { reason: String(err?.name || 'unknown') });
+        track('load_error', { model: tier, reason: String(err?.name || 'unknown') });
         showPanel(
           'Could not load the AI model: ' + (err?.message || err) +
           ' — check your connection and try again.',
@@ -321,7 +437,8 @@
 
     ready = true;
     hidePanel();
-    track('load_complete', { cached, multithread: safeIsMultithread() });
+    setTierButtons(true);
+    track('load_complete', { model: tier, cached, multithread: safeIsMultithread() });
 
     qEl.disabled = false; sendEl.disabled = false;
     qEl.placeholder = 'Ask Archen anything…';
@@ -329,13 +446,47 @@
     if (ctaUrl) footSep2.classList.remove('hidden');
     qEl.focus();
 
-    addMsg('bot', "Hi! I'm Archen, running right here in your browser. Nothing you type leaves this device. What's up?");
+    if (!msgsEl.querySelector('.msg.bot')) {
+      addMsg('bot', "Hi! I'm Archen, running right here in your browser. Nothing you type leaves this device. What's up?");
+      showChips();
+    } else {
+      addNote(`Now using the ${model.label.toLowerCase()} model.`);
+    }
     if (!safeIsMultithread()) {
-      addMsg('note', 'Running single-threaded — replies will be slower than usual.');
+      addNote('Running single-threaded — replies will be slower than usual.');
+    }
+    if (tier === 'fast' && canRunSmart()) {
+      addNote('Your device has room for the larger model, which gives better answers.',
+        { label: 'Switch to Smarter', onClick: () => switchTier('smart') });
     }
   }
 
-  const safeIsMultithread = () => { try { return wllama.isMultithread(); } catch { return false; } };
+  async function switchTier(next, { silent = false } = {}) {
+    if (!MODELS[next] || next === tier || busy) return;
+    if (!silent) track('model_switch', { from: tier, to: next });
+    tier = next;
+    try { localStorage.setItem(TIER_KEY, tier); } catch {}
+    renderTier();
+    try { await wllama.exit(); } catch {}
+    wllama = new Wllama(WASM_PATHS);
+    await load();
+  }
+
+  tierEl.addEventListener('click', e => {
+    const b = e.target.closest('button[data-tier]');
+    if (!b) return;
+    if (b.dataset.tier === 'smart' && !canRunSmart() && isRiskyDevice()) {
+      showPanel(
+        `The larger model is ${MODELS.smart.sizeHint} and needs a good amount of memory. On this device it may fail to load or slow the browser down.`,
+        { kind: 'warn', actions: [
+          { label: 'Try it anyway', onClick: () => { hidePanel(); switchTier('smart'); } },
+          { label: 'Keep Fast', onClick: hidePanel },
+        ] }
+      );
+      return;
+    }
+    switchTier(b.dataset.tier);
+  });
 
   /* ── Chat ──────────────────────────────────────────────────── */
   const history = [];
@@ -351,12 +502,14 @@
 
     busy = true; qEl.value = ''; qEl.disabled = true;
     sendEl.classList.add('hidden'); stopEl.classList.remove('hidden');
+    setTierButtons(false);
+    hideChips();
 
     addMsg('user', text);
     history.push({ role: 'user', content: text });
     const turn = history.filter(m => m.role === 'user').length;
-    if (turn === 1) track('first_message');
-    if (turn === 3) track('turn_3');
+    if (turn === 1) track('first_message', { model: tier });
+    if (turn === 3) track('turn_3', { model: tier });
 
     const botDiv = addMsg('bot', '');
     genCtl = new AbortController();
@@ -367,8 +520,11 @@
         messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...recentHistory()],
         stream: true,
         max_tokens: MAX_TOKENS,
-        temperature: 0.6,
+        // Reuse the KV cache for the unchanged prefix (system prompt and
+        // earlier turns), so each reply starts faster.
+        cache_prompt: true,
         abortSignal: genCtl.signal,
+        ...SAMPLING,
       });
       for await (const chunk of stream) {
         const delta = chunk?.choices?.[0]?.delta?.content || '';
@@ -382,7 +538,7 @@
         if (full) history.push({ role: 'assistant', content: full });
         else botDiv.remove();
       } else {
-        track('generate_error');
+        track('generate_error', { model: tier });
         botDiv.classList.add('err');
         botDiv.textContent = 'Something went wrong: ' + (err?.message || err);
         history.pop(); // drop the user turn that produced no reply
@@ -391,6 +547,7 @@
       genCtl = null; busy = false;
       qEl.disabled = false;
       stopEl.classList.add('hidden'); sendEl.classList.remove('hidden');
+      setTierButtons(true);
       qEl.focus();
     }
   }
@@ -399,27 +556,34 @@
   stopEl.addEventListener('click', () => { track('generation_stopped'); genCtl?.abort(); });
   resetBtn.addEventListener('click', () => {
     if (busy) return;
-    history.length = 0; ctaShown = false; msgsEl.textContent = '';
+    history.length = 0; ctaShown = false; chipsEl = null; msgsEl.textContent = '';
     addMsg('bot', "New chat. What's on your mind?");
+    showChips();
     qEl.focus();
     track('chat_reset');
   });
 
   /* ── Boot ──────────────────────────────────────────────────── */
   (async function boot() {
+    renderTier();
     const unsupported = checkSupport();
     if (unsupported) {
       track('unsupported_browser');
       showPanel(unsupported, { kind: 'err' });
+      setTierButtons(false);
       qEl.placeholder = 'Not supported in this browser';
       footNote.textContent = 'Archen needs a recent desktop browser to run in-tab.';
       return;
     }
 
-    if (isRiskyDevice() && !(await isModelCached())) {
+    // A stored "smart" choice on a phone is most likely a different device
+    // sharing the account's browser profile; start safe.
+    if (tier === 'smart' && isMobile()) { tier = 'fast'; renderTier(); }
+
+    if (isRiskyDevice() && !(await isModelCached(MODELS[tier]))) {
       track('risky_device_prompt');
       showPanel(
-        'Heads up: this downloads a ~400 MB model and runs it in memory. On phones and low-memory machines the tab may run out of memory. A desktop browser works best.',
+        `Heads up: this downloads a ${MODELS[tier].sizeHint} model and runs it in memory. On phones and low-memory machines the tab may run out of memory. A desktop browser works best.`,
         { kind: 'warn', actions: [
           { label: 'Continue anyway', onClick: () => { track('risky_device_continue'); load(); } },
         ] }

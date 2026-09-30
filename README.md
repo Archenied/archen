@@ -40,6 +40,9 @@ Events are pushed to `window.dataLayer` when present, and beaconed to
 | `turn_3` | Whether the small model holds interest past the novelty |
 | `generation_stopped`, `generate_error` | Quality and reliability friction |
 | `cta_click` (`inline` / `footer`) | Conversion to the full app, by placement |
+| `model_switch`, `chip_click` | Whether visitors reach for the larger model and the guided tasks |
+
+Load, activation and generation events carry `model: fast|smart` so the two tiers can be compared.
 
 `load_start` → `load_complete` → `first_message` → `cta_click` is the funnel.
 Until those four numbers exist, every other change to this page is guesswork.
@@ -60,17 +63,52 @@ cross-origin subresources that are not CORS- or CORP-enabled. The jsDelivr and
 Hugging Face fetches here are CORS-enabled and are expected to survive, but
 confirm the model still downloads after the move.
 
-## Notes on the model
+## Models and answer quality
 
-- `Qwen2.5-0.5B-Instruct`, Q4_K_M — roughly 400 MB, cached by wllama after the
-  first visit. Confirm the exact size against the Hugging Face repo if the
-  number is used in marketing copy.
-- `n_ctx` is set explicitly to 4096. wllama's default is **1024**, which
-  overflows after a few turns once the system prompt and a 300-token reply are
+Two tiers, both Qwen2.5-Instruct in Q4_K_M, switchable from the header. The
+choice is remembered per browser.
+
+| Tier | Model | Download | When |
+| --- | --- | --- | --- |
+| Fast (default) | 0.5B | ~400 MB | Everyone, and the only option offered on phones |
+| Smarter | 1.5B | ~1 GB | Recommended automatically on desktops reporting 8 GB+ (`navigator.deviceMemory`) |
+
+The 1.5B model is the biggest single quality lever available in-browser: it
+follows instructions far better and is much stronger in languages other than
+English. If it fails to load (memory, or the file is unavailable), the page
+falls back to Fast with a note rather than leaving the visitor with nothing.
+
+**Verify before relying on it:** the Smarter file name
+(`qwen2.5-1.5b-instruct-q4_k_m.gguf` in `Qwen/Qwen2.5-1.5B-Instruct-GGUF`)
+follows Qwen's naming convention but was not fetched during development
+because Hugging Face was unreachable from the build environment. Load it once
+in a browser and confirm the download starts and the size is roughly 1 GB.
+
+What else was done to get better answers out of small models, all in
+`index.html`:
+
+- **System prompt** rewritten as five short rules a small model can follow:
+  answer in the user's language, answer first then detail, say when unsure,
+  no greetings or restating the question. Every sentence costs context on
+  every turn, so it is deliberately terse.
+- **Sampling** (`SAMPLING`): `temperature` 0.5, `top_p` 0.9, `min_p` 0.05,
+  `repeat_penalty` 1.1 over the last 64 tokens. Small models loop and ramble
+  at higher temperature; the penalty and `min_p` cut both. These are the
+  llama.cpp server key names, which is what the wllama engine reads.
+- **Prompt cache** (`cache_prompt: true`): the KV cache for the system prompt
+  and earlier turns is reused, so each reply starts faster.
+- **Quick-task chips** on an empty conversation (summarize, fix writing,
+  explain simply, translate). They fill the input with a scaffold, which
+  keeps requests narrow — the kind of task a 0.5B model handles well —
+  instead of open-ended chat, which is where it looks weakest.
+- **`n_ctx`** is set explicitly to 4096. wllama's default is **1024**, which
+  overflows after a few turns once the system prompt and a reply are
   counted. Prompt history is also capped to the most recent turns
   (`MAX_HISTORY_TURNS`).
-- Expect the 0.5B model to feel weak. That is a product risk, not a bug: the
-  demo has to prove *speed and privacy*, and let the full app prove quality.
+
+Expect the 0.5B model to still feel weak on open-ended questions. That is a
+product risk, not a bug: the demo has to prove *speed and privacy*, and the
+chips and the Smarter tier exist to show it at its best.
 
 ## Contributing
 
