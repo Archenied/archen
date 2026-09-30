@@ -180,7 +180,7 @@
   <div class="hint">
     <span id="footNote">Private: nothing you type leaves this device.</span>
     <span class="sep hidden" id="footSep1">·</span>
-    <a class="hidden" id="footCta" href="#" target="_blank" rel="noopener">Get the full Archen app</a>
+    <a class="hidden" id="footCta" href="#" target="_blank" rel="noopener"></a>
     <span class="sep hidden" id="footSep2">·</span>
     <button type="button" class="hidden" id="resetBtn">New chat</button>
   </div>
@@ -194,8 +194,11 @@
      Leave a URL empty to hide that call-to-action entirely.
      ───────────────────────────────────────────────────────────── */
   const CONFIG = {
-    APP_URL: '',            // Download page for the full Archen app. TODO: fill in.
-    WAITLIST_URL: '',       // Used only when APP_URL is empty.
+    // Where the call-to-action sends people. Checked in this order; the
+    // first non-empty one wins, and the copy changes to match.
+    APP_URL: '',            // A packaged app's download page, if one ever ships.
+    WAITLIST_URL: '',       // A sign-up form while such an app is in progress.
+    REPO_URL: 'https://github.com/Archenied/archen', // The project itself — this page is the product.
     ANALYTICS_ENDPOINT: '', // Optional POST endpoint for anonymous funnel counters (event names only).
   };
 
@@ -243,8 +246,20 @@
   const footNote = $('footNote'), footCta = $('footCta'), resetBtn = $('resetBtn'), footSep1 = $('footSep1'), footSep2 = $('footSep2');
   const tierEl = $('tier'), themeEl = $('theme'), statusEl = $('status');
 
-  const ctaUrl = CONFIG.APP_URL || CONFIG.WAITLIST_URL || '';
-  const ctaIsWaitlist = !CONFIG.APP_URL && !!CONFIG.WAITLIST_URL;
+  const CTA = CONFIG.APP_URL
+    ? { url: CONFIG.APP_URL, kind: 'app',
+        inline: 'Liked this? The full Archen app runs a much more capable model — same on-device privacy, far better answers.',
+        button: 'Get the full Archen app →', footer: 'Get the full Archen app' }
+    : CONFIG.WAITLIST_URL
+    ? { url: CONFIG.WAITLIST_URL, kind: 'waitlist',
+        inline: 'This is a small preview model. A full Archen app with a much more capable model is in the works — same on-device privacy.',
+        button: 'Join the wait-list →', footer: 'Join the wait-list' }
+    : CONFIG.REPO_URL
+    ? { url: CONFIG.REPO_URL, kind: 'repo',
+        inline: 'Archen is open source. Everything you just used is one HTML file you can read, fork and run yourself.',
+        button: 'View on GitHub →', footer: 'Open source on GitHub' }
+    : null;
+  const ctaUrl = CTA?.url || '';
 
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -399,21 +414,18 @@
   function showCta() {
     if (ctaShown || !ctaUrl) return; ctaShown = true;
     const box = document.createElement('div'); box.className = 'cta';
-    const p = document.createElement('p');
-    p.textContent = ctaIsWaitlist
-      ? 'This is a small preview model. The full Archen app runs a much more capable model with the same on-device privacy.'
-      : 'Liked this? The full Archen app runs a much more capable model — same on-device privacy, far better answers.';
+    const p = document.createElement('p'); p.textContent = CTA.inline;
     const a = document.createElement('a'); a.href = ctaUrl; a.target = '_blank'; a.rel = 'noopener';
-    a.textContent = ctaIsWaitlist ? 'Join the wait-list →' : 'Get the full Archen app →';
-    a.addEventListener('click', () => track('cta_click', { where: 'inline' }));
+    a.textContent = CTA.button;
+    a.addEventListener('click', () => track('cta_click', { where: 'inline', kind: CTA.kind }));
     box.append(p, a); msgsEl.insertBefore(box, jumpEl); keepInView();
   }
   if (ctaUrl) {
-    footCta.href = ctaUrl; footCta.textContent = ctaIsWaitlist ? 'Join the wait-list' : 'Get the full Archen app';
-    footCta.addEventListener('click', () => track('cta_click', { where: 'footer' }));
+    footCta.href = ctaUrl; footCta.textContent = CTA.footer;
+    footCta.addEventListener('click', () => track('cta_click', { where: 'footer', kind: CTA.kind }));
     footCta.classList.remove('hidden'); footSep1.classList.remove('hidden');
   } else {
-    console.warn('[Archen] No CONFIG.APP_URL or CONFIG.WAITLIST_URL set — the call-to-action is hidden.');
+    console.warn('[Archen] No CONFIG.APP_URL, WAITLIST_URL or REPO_URL set — the call-to-action is hidden.');
   }
 
   /* ── Capability checks ─────────────────────────────────────── */

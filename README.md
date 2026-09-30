@@ -9,20 +9,24 @@ call-to-action is the point — not an afterthought.
 
 ## Configure before deploying
 
-Open `index.html` and fill in the `CONFIG` block near the top of the `<script>`:
+Open `index.html` and check the `CONFIG` block near the top of the `<script>`:
 
 | Key | Purpose |
 | --- | --- |
-| `APP_URL` | Download page for the full Archen app. Shows the primary CTA. |
-| `WAITLIST_URL` | Used only when `APP_URL` is empty — shows a wait-list CTA instead. |
+| `APP_URL` | Download page for a packaged Archen app, if one ships. Wins when set. |
+| `WAITLIST_URL` | Sign-up form while such an app is in progress. Used when `APP_URL` is empty. |
+| `REPO_URL` | This repository. **Set by default** — as of now this page *is* the product, so the call-to-action reads "View on GitHub". |
 | `ANALYTICS_ENDPOINT` | Optional `POST` endpoint for anonymous funnel counters. |
 
-**If both URLs are empty the CTA is hidden entirely** and a warning is logged to
-the console. The page still works, but it has no exit — which is the single
-biggest thing to avoid shipping.
+The first non-empty URL wins and the call-to-action copy changes to match
+(app / wait-list / open source). If all three are empty the CTA is hidden and a
+warning is logged to the console — a page with no exit is the single biggest
+thing to avoid shipping.
 
 The CTA appears in two places: inline in the conversation after the visitor's
 second reply (when interest is highest), and in the footer at all times.
+`cta_click` events carry `kind` so the three variants can be compared if the
+configuration changes over time.
 
 ## Funnel events
 
@@ -39,7 +43,7 @@ Events are pushed to `window.dataLayer` when present, and beaconed to
 | `first_message` | Activation — loaded *and* actually tried it |
 | `turn_3` | Whether the small model holds interest past the novelty |
 | `generation_stopped`, `generate_error` | Quality and reliability friction |
-| `cta_click` (`inline` / `footer`) | Conversion to the full app, by placement |
+| `cta_click` (`inline` / `footer`, `kind`) | Conversion, by placement and by CTA variant |
 | `model_switch`, `chip_click` | Whether visitors reach for the larger model and the guided tasks |
 | `reply_complete` (`tokens`, `ms`), `regenerate`, `theme_toggle` | Real on-device speed by tier, and which UX affordances get used |
 
