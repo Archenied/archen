@@ -2,148 +2,642 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Archen — Browser AI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Archen — Private AI that runs on your device</title>
+<meta name="description" content="Try Archen in your browser. Your messages never leave your device — no server, no account, no logging.">
 <style>
   :root {
-    --bg:#0e1022; --bg2:#181b3a; --line:#2b2f57; --text:#eef1ff; --dim:#8b93b8;
-    --cyan:#6ee7f5; --violet:#a78bfa; --ok:#6ee7a0; --err:#ff8080;
+    color-scheme: dark;
+    --bg:#0e1022; --bg2:#181b3a; --bg3:#0a0c1c; --line:#2b2f57; --text:#eef1ff; --dim:#8b93b8;
+    --cyan:#6ee7f5; --violet:#a78bfa; --ok:#6ee7a0; --warn:#ffcf7a; --err:#ff8080;
+    --user-fg:#08121f; --shadow:0 8px 30px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg:#f6f7fb; --bg2:#ffffff; --bg3:#eef0f7; --line:#dfe2ee; --text:#14162b; --dim:#5f6685;
+    --cyan:#12b5c9; --violet:#7c5cf0; --ok:#1f9d5a; --warn:#b26a00; --err:#d23b3b;
+    --user-fg:#ffffff; --shadow:0 8px 30px rgba(20,22,43,.10);
   }
   * { box-sizing:border-box; margin:0; padding:0; }
   html,body { height:100%; }
   body {
-    background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif;
-    display:flex; flex-direction:column; align-items:center;
+    background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    display:flex; flex-direction:column; align-items:center; -webkit-font-smoothing:antialiased;
   }
-  .wrap { width:100%; max-width:640px; height:100vh; display:flex; flex-direction:column; padding:16px; }
-  .title { display:flex; align-items:center; gap:10px; padding:6px 4px 14px; }
-  .title .dot { width:10px; height:10px; border-radius:50%; background:linear-gradient(135deg,var(--cyan),var(--violet)); }
-  .title b { font-size:16px; }
-  .title span { font-size:12px; color:var(--dim); }
+  button { font-family:inherit; }
+  .wrap { width:100%; max-width:720px; height:100dvh; display:flex; flex-direction:column;
+          padding:12px 16px calc(12px + env(safe-area-inset-bottom)); }
 
-  .status {
-    background:var(--bg2); border:1px solid var(--line); border-radius:12px;
-    padding:16px; margin-bottom:14px; font-size:13px; color:var(--dim); line-height:1.6;
-  }
-  .status.ok { display:none; }
-  .bar { height:8px; border-radius:6px; background:#0a0c1c; overflow:hidden; margin-top:10px; }
+  /* ── Header ─────────────────────────────────────────────── */
+  .hdr { display:flex; align-items:center; gap:10px; padding:4px 2px 10px; flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:9px; }
+  .brand .dot { width:11px; height:11px; border-radius:50%; flex:none;
+                background:linear-gradient(135deg,var(--cyan),var(--violet)); }
+  .brand b { font-size:16px; letter-spacing:.2px; }
+  .status { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--dim);
+            border:1px solid var(--line); border-radius:999px; padding:3px 9px 3px 7px; }
+  .status::before { content:''; width:6px; height:6px; border-radius:50%; background:var(--dim); }
+  .status.on::before { background:var(--ok); }
+  .status.hidden { display:none; }
+  .hdr .spacer { flex:1; }
+  .seg { display:flex; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
+  .seg button { background:transparent; border:none; color:var(--dim); padding:5px 10px; font-size:11.5px; cursor:pointer; }
+  .seg button + button { border-left:1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background:var(--bg2); color:var(--text); }
+  .seg button:disabled { opacity:.5; cursor:default; }
+  .icon { background:transparent; border:1px solid var(--line); color:var(--dim); border-radius:9px;
+          width:30px; height:28px; font-size:14px; cursor:pointer; line-height:1; }
+  .icon:hover { color:var(--text); }
+
+  /* ── Panel (loading / warnings) ──────────────────────────── */
+  .panel { background:var(--bg2); border:1px solid var(--line); border-radius:14px; padding:14px 16px;
+           margin-bottom:12px; font-size:13px; color:var(--dim); line-height:1.6; box-shadow:var(--shadow); }
+  .panel.hidden { display:none; }
+  .panel.warn { border-color:var(--warn); color:var(--warn); }
+  .panel.err  { border-color:var(--err);  color:var(--err);  }
+  .bar { height:6px; border-radius:6px; background:var(--bg3); overflow:hidden; margin-top:10px; }
   .bar > div { height:100%; width:0%; background:linear-gradient(90deg,var(--cyan),var(--violet)); transition:width .2s; }
+  .panel .acts { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  .ghost { background:transparent; border:1px solid var(--line); border-radius:9px; padding:7px 13px;
+           color:var(--dim); font-size:12px; cursor:pointer; }
+  .ghost:hover { border-color:var(--cyan); color:var(--text); }
 
-  .messages { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:14px; padding:4px; }
-  .msg { max-width:85%; padding:10px 13px; border-radius:12px; font-size:14px; line-height:1.5; white-space:pre-wrap; }
-  .msg.user { align-self:flex-end; background:linear-gradient(135deg,var(--cyan),var(--violet)); color:#08121f; }
-  .msg.bot  { align-self:flex-start; background:var(--bg2); border:1px solid var(--line); }
-  .msg.err  { align-self:flex-start; background:var(--bg2); border:1px solid var(--err); color:var(--err); }
+  /* ── Conversation ───────────────────────────────────────── */
+  .messages { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:18px; padding:6px 2px 10px;
+              scroll-behavior:smooth; position:relative; }
+  @media (prefers-reduced-motion: reduce) { .messages { scroll-behavior:auto; } }
 
-  .row { display:flex; gap:8px; padding-top:12px; }
-  input#q {
-    flex:1; background:var(--bg2); border:1px solid var(--line); border-radius:11px;
-    padding:11px 13px; color:var(--text); font-size:14px; outline:none; font-family:inherit;
-  }
-  input#q:focus { border-color:var(--cyan); }
-  input#q:disabled { opacity:.5; }
-  button#send {
-    border:none; border-radius:11px; padding:0 18px; font-size:13px; font-weight:600; cursor:pointer;
-    background:linear-gradient(90deg,var(--cyan),var(--violet)); color:#08121f;
-  }
-  button#send:disabled { opacity:.5; cursor:default; }
-  .foot { font-size:11px; color:var(--dim); text-align:center; padding-top:10px; }
+  .empty { margin:auto 0; text-align:center; padding:24px 8px 8px; }
+  .empty h1 { font-size:22px; font-weight:600; margin-bottom:6px; }
+  .empty p { font-size:13px; color:var(--dim); margin-bottom:18px; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+  .chip { background:var(--bg2); border:1px solid var(--line); border-radius:999px; padding:8px 14px;
+          color:var(--text); font-size:12.5px; cursor:pointer; }
+  .chip:hover { border-color:var(--violet); }
+
+  .m { display:flex; flex-direction:column; max-width:100%; }
+  .m.user { align-items:flex-end; }
+  .m.user .body { max-width:85%; padding:10px 14px; border-radius:16px 16px 4px 16px; font-size:14.5px; line-height:1.5;
+                  background:linear-gradient(135deg,var(--cyan),var(--violet)); color:var(--user-fg); white-space:pre-wrap; }
+  .m.bot { align-items:flex-start; }
+  .m.bot .body { max-width:100%; font-size:14.5px; line-height:1.6; padding:2px 2px 0 0; overflow-wrap:anywhere; }
+  .m.bot.err .body { color:var(--err); }
+  .m .who { font-size:11px; color:var(--dim); margin-bottom:5px; display:flex; align-items:center; gap:6px; }
+  .m .who .mark { width:14px; height:14px; border-radius:4px; background:linear-gradient(135deg,var(--cyan),var(--violet)); }
+
+  /* Rendered markdown */
+  .body p { margin:0 0 .6em; } .body p:last-child { margin-bottom:0; }
+  .body ul, .body ol { margin:0 0 .6em 1.25em; } .body li { margin:.15em 0; }
+  .body h3, .body h4 { font-size:1em; font-weight:600; margin:.6em 0 .3em; }
+  .body code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.9em;
+               background:var(--bg3); border:1px solid var(--line); border-radius:5px; padding:.08em .35em; }
+  .body pre { position:relative; background:var(--bg3); border:1px solid var(--line); border-radius:10px;
+              padding:12px 12px; margin:.4em 0 .7em; overflow-x:auto; }
+  .body pre code { background:none; border:none; padding:0; font-size:.86em; line-height:1.5; white-space:pre; }
+  .body pre .copy { position:absolute; top:6px; right:6px; }
+  .body a { color:var(--cyan); }
+  .body strong { font-weight:600; }
+
+  .cursor::after { content:'▍'; color:var(--violet); animation:blink 1s steps(2) infinite; margin-left:1px; }
+  @keyframes blink { 50% { opacity:0; } }
+  .dots { display:inline-flex; gap:4px; padding:6px 0; }
+  .dots i { width:6px; height:6px; border-radius:50%; background:var(--dim); animation:bounce 1.2s infinite; }
+  .dots i:nth-child(2) { animation-delay:.15s } .dots i:nth-child(3) { animation-delay:.3s }
+  @keyframes bounce { 0%,60%,100% { transform:translateY(0); opacity:.5 } 30% { transform:translateY(-4px); opacity:1 } }
+
+  .meta { display:flex; align-items:center; gap:10px; margin-top:6px; font-size:11px; color:var(--dim);
+          opacity:0; transition:opacity .15s; }
+  .m:hover .meta, .m:focus-within .meta, .m.last .meta { opacity:1; }
+  .meta button, .copy { background:transparent; border:1px solid var(--line); color:var(--dim); border-radius:7px;
+                        padding:3px 8px; font-size:11px; cursor:pointer; }
+  .meta button:hover, .copy:hover { color:var(--text); border-color:var(--cyan); }
+  .meta .perf { margin-left:auto; font-variant-numeric:tabular-nums; }
+
+  .note { align-self:center; max-width:100%; font-size:11.5px; color:var(--dim); text-align:center; }
+  .note button { background:none; border:none; color:var(--cyan); font:inherit; cursor:pointer; text-decoration:underline; padding:0; }
+
+  .cta { align-self:flex-start; max-width:92%; background:var(--bg2); border:1px solid var(--violet);
+         border-radius:14px; padding:13px 15px; box-shadow:var(--shadow); }
+  .cta p { font-size:13px; line-height:1.55; color:var(--dim); margin-bottom:11px; }
+  .cta a { display:inline-block; text-decoration:none; border-radius:10px; padding:9px 15px; font-size:13px; font-weight:600;
+           color:var(--user-fg); background:linear-gradient(90deg,var(--cyan),var(--violet)); }
+
+  .jump { position:sticky; bottom:6px; align-self:center; background:var(--bg2); border:1px solid var(--line);
+          color:var(--text); border-radius:999px; padding:6px 12px; font-size:12px; cursor:pointer; box-shadow:var(--shadow); }
+  .jump.hidden { display:none; }
+
+  /* ── Composer ───────────────────────────────────────────── */
+  .composer { display:flex; align-items:flex-end; gap:8px; background:var(--bg2); border:1px solid var(--line);
+              border-radius:16px; padding:8px 8px 8px 14px; margin-top:8px; box-shadow:var(--shadow); }
+  .composer:focus-within { border-color:var(--cyan); }
+  textarea#q { flex:1; min-width:0; resize:none; background:transparent; border:none; outline:none; color:var(--text);
+               font:inherit; font-size:16px; line-height:1.45; max-height:160px; padding:6px 0; }
+  textarea#q::placeholder { color:var(--dim); }
+  textarea#q:disabled { opacity:.5; }
+  .act { border:none; border-radius:11px; width:40px; height:36px; font-size:15px; font-weight:700; cursor:pointer; flex:none;
+         background:linear-gradient(90deg,var(--cyan),var(--violet)); color:var(--user-fg); }
+  .act:disabled { opacity:.45; cursor:default; }
+  .act.stop { background:transparent; border:1px solid var(--err); color:var(--err); }
+  .act.hidden { display:none; }
+  .hint { font-size:11px; color:var(--dim); text-align:center; padding-top:8px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .hint a { color:var(--cyan); }
+  .hint button { background:none; border:none; color:var(--dim); font-size:11px; cursor:pointer; text-decoration:underline; padding:0; }
+  .hint .hidden { display:none; }
+  .hint .sep { opacity:.4; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="title"><div class="dot"></div><b>Archen</b><span>— runs entirely in this browser tab, no server needed</span></div>
-  <div class="status" id="status">Loading the AI model into your browser (~470 MB, first time only — it's saved after that)…
-    <div class="bar"><div id="bar"></div></div>
+  <header class="hdr">
+    <div class="brand"><div class="dot"></div><b>Archen</b></div>
+    <span class="status hidden" id="status" aria-live="polite"></span>
+    <span class="spacer"></span>
+    <div class="seg" id="tier" role="group" aria-label="Model size">
+      <button type="button" data-tier="fast" aria-pressed="true">Fast</button>
+      <button type="button" data-tier="smart" aria-pressed="false">Smarter</button>
+    </div>
+    <button type="button" class="icon" id="theme" aria-label="Toggle light or dark theme" title="Theme">◐</button>
+  </header>
+
+  <div class="panel hidden" id="panel" role="status" aria-live="polite">
+    <span id="panelText">Preparing…</span>
+    <div class="bar" id="barWrap"><div id="bar"></div></div>
+    <div class="acts" id="panelActs"></div>
   </div>
-  <div class="messages" id="messages"></div>
-  <div class="row">
-    <input id="q" type="text" placeholder="Getting ready…" disabled autocomplete="off">
-    <button id="send" disabled>Send</button>
+
+  <main class="messages" id="messages" role="log" aria-live="polite" aria-label="Conversation">
+    <button type="button" class="jump hidden" id="jump">↓ New reply</button>
+  </main>
+
+  <form class="composer" id="form">
+    <label class="sr-only" for="q">Message Archen</label>
+    <textarea id="q" rows="1" placeholder="Getting ready…" disabled enterkeyhint="send"></textarea>
+    <button id="send" type="submit" class="act" disabled aria-label="Send">↑</button>
+    <button id="stop" type="button" class="act stop hidden" aria-label="Stop generating">■</button>
+  </form>
+  <div class="hint">
+    <span id="footNote">Private: nothing you type leaves this device.</span>
+    <span class="sep hidden" id="footSep1">·</span>
+    <a class="hidden" id="footCta" href="#" target="_blank" rel="noopener">Get the full Archen app</a>
+    <span class="sep hidden" id="footSep2">·</span>
+    <button type="button" class="hidden" id="resetBtn">New chat</button>
   </div>
-  <div class="foot">Small on-device model — quick answers, not as sharp as the full Archen app.</div>
 </div>
 
 <script type="module">
   import { Wllama } from 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.6.0/esm/index.js';
 
-  const $ = id => document.getElementById(id);
-  const statusEl = $('status'), barEl = $('bar'), msgsEl = $('messages'), qEl = $('q'), sendEl = $('send');
-
-  const CONFIG_PATHS = {
-    default: 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.6.0/esm/wasm/wllama.wasm',
+  /* ─────────────────────────────────────────────────────────────
+     CONFIG — set APP_URL to the full Archen app's download page.
+     Leave a URL empty to hide that call-to-action entirely.
+     ───────────────────────────────────────────────────────────── */
+  const CONFIG = {
+    APP_URL: '',            // Download page for the full Archen app. TODO: fill in.
+    WAITLIST_URL: '',       // Used only when APP_URL is empty.
+    ANALYTICS_ENDPOINT: '', // Optional POST endpoint for anonymous funnel counters (event names only).
   };
-  const wllama = new Wllama(CONFIG_PATHS);
 
-  const SYSTEM_PROMPT =
-    'You are Archen, a friendly, warm AI assistant. Keep answers short, clear, and kind. Use simple language.';
-  const history = [];
+  /* Models. "fast" is the default and the only tier offered on phones.
+     "smart" is the same family, three times the size: noticeably better at
+     following instructions and at non-English languages, for ~1 GB. */
+  const MODELS = {
+    fast:  { repo: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF', file: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+             label: 'Fast',    sizeHint: '~400 MB', minMemoryGB: 0 },
+    smart: { repo: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF', file: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+             label: 'Smarter', sizeHint: '~1 GB',   minMemoryGB: 8 },
+  };
+  const KEYS = { tier: 'archen.tier', chat: 'archen.chat', theme: 'archen.theme' };
 
-  function addMsg(role, text) {
-    const div = document.createElement('div');
-    div.className = 'msg ' + role;
-    div.textContent = text;
-    msgsEl.appendChild(div);
-    msgsEl.scrollTop = msgsEl.scrollHeight;
-    return div;
+  // wllama defaults to n_ctx 1024, which overflows after a few turns.
+  const N_CTX = 4096;
+  const MAX_TOKENS = 350;
+  const MAX_HISTORY_TURNS = 6;
+  const MAX_SAVED_MESSAGES = 40;
+
+  // Small models loop and ramble at high temperature; a mild repeat penalty
+  // and min_p cut both. Keys are the llama.cpp server names the engine reads.
+  const SAMPLING = { temperature: 0.5, top_p: 0.9, min_p: 0.05, repeat_penalty: 1.1, repeat_last_n: 64 };
+
+  // Short, concrete rules a small model can follow. Every sentence costs
+  // context on every turn, so nothing decorative.
+  const SYSTEM_PROMPT = [
+    'You are Archen, a helpful assistant running privately on the user\'s own device.',
+    'Answer in the same language the user writes in.',
+    'Be brief: answer first, then at most a few sentences of detail. Use a list only when the user asks for steps or options.',
+    'If you are not sure or do not know, say so plainly instead of guessing.',
+    'Do not repeat the question back and do not add greetings or sign-offs.',
+  ].join(' ');
+
+  const CHIPS = [
+    { label: 'Summarize text', fill: 'Summarize this in 3 short bullet points:\n\n' },
+    { label: 'Fix my writing', fill: 'Fix the grammar and make this clearer, keep the meaning:\n\n' },
+    { label: 'Explain simply', fill: 'Explain this simply, as if to a beginner:\n\n' },
+    { label: 'Translate',      fill: 'Translate this to English:\n\n' },
+  ];
+
+  const $ = id => document.getElementById(id);
+  const panel = $('panel'), panelText = $('panelText'), panelActs = $('panelActs'), barWrap = $('barWrap'), bar = $('bar');
+  const msgsEl = $('messages'), jumpEl = $('jump'), qEl = $('q'), sendEl = $('send'), stopEl = $('stop'), formEl = $('form');
+  const footNote = $('footNote'), footCta = $('footCta'), resetBtn = $('resetBtn'), footSep1 = $('footSep1'), footSep2 = $('footSep2');
+  const tierEl = $('tier'), themeEl = $('theme'), statusEl = $('status');
+
+  const ctaUrl = CONFIG.APP_URL || CONFIG.WAITLIST_URL || '';
+  const ctaIsWaitlist = !CONFIG.APP_URL && !!CONFIG.WAITLIST_URL;
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+  };
+
+  /* ── Anonymous funnel counters ─────────────────────────────── */
+  const track = (event, props = {}) => {
+    try {
+      const payload = { event, ...props, t: Date.now() };
+      if (window.dataLayer) window.dataLayer.push(payload);
+      if (CONFIG.ANALYTICS_ENDPOINT && navigator.sendBeacon) {
+        navigator.sendBeacon(CONFIG.ANALYTICS_ENDPOINT, new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+      }
+    } catch {}
+  };
+
+  /* ── Theme ─────────────────────────────────────────────────── */
+  function applyTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    themeEl.textContent = t === 'light' ? '☾' : '☀';
+  }
+  const systemTheme = () => (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  applyTheme(store.get(KEYS.theme) || systemTheme());
+  themeEl.addEventListener('click', () => {
+    const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    applyTheme(next); store.set(KEYS.theme, next); track('theme_toggle', { theme: next });
+  });
+
+  /* ── Minimal, safe Markdown ────────────────────────────────── */
+  // Escapes first, then applies a small subset. Only tags this file emits
+  // ever reach innerHTML, so model output cannot inject markup.
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  function inline(s) {
+    return s
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>')
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  }
+  function blocks(text) {
+    const lines = esc(text).split('\n');
+    let html = '', para = [], list = null;
+    const flushP = () => { if (para.length) { html += `<p>${inline(para.join('<br>'))}</p>`; para = []; } };
+    const flushL = () => { if (list) { html += `<${list.t}>${list.items.map(i => `<li>${inline(i)}</li>`).join('')}</${list.t}>`; list = null; } };
+    for (const raw of lines) {
+      const line = raw.trimEnd(); let m;
+      if (!line.trim()) { flushP(); flushL(); continue; }
+      if ((m = line.match(/^#{1,6}\s+(.*)$/))) { flushP(); flushL(); html += `<h3>${inline(m[1])}</h3>`; continue; }
+      if ((m = line.match(/^\s*[-*•]\s+(.*)$/))) { flushP(); if (!list || list.t !== 'ul') { flushL(); list = { t: 'ul', items: [] }; } list.items.push(m[1]); continue; }
+      if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) { flushP(); if (!list || list.t !== 'ol') { flushL(); list = { t: 'ol', items: [] }; } list.items.push(m[1]); continue; }
+      flushL(); para.push(line);
+    }
+    flushP(); flushL(); return html;
+  }
+  function renderMarkdown(src) {
+    const parts = src.split('```'); let out = '';
+    for (let i = 0; i < parts.length; i++) {
+      if (i % 2 === 0) { out += blocks(parts[i]); continue; }
+      let code = parts[i]; const nl = code.indexOf('\n');
+      if (nl > -1) code = code.slice(nl + 1);            // drop the language tag line
+      out += `<pre><button type="button" class="copy" data-copy>Copy</button><code>${esc(code.replace(/\n$/, ''))}</code></pre>`;
+    }
+    return out;
   }
 
-  async function init() {
-    try {
-      await wllama.loadModelFromHF(
-        { repo: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF', file: 'qwen2.5-0.5b-instruct-q4_k_m.gguf' },
-        { progressCallback: ({ loaded, total }) => {
-            const pct = total ? Math.round((loaded / total) * 100) : 0;
-            barEl.style.width = pct + '%';
-            statusEl.firstChild.textContent = `Loading the AI model into your browser… ${pct}% (first time only — it's saved after that)`;
-          } }
-      );
-      statusEl.classList.add('ok');
-      qEl.disabled = false; sendEl.disabled = false;
-      qEl.placeholder = 'Ask Archen anything…';
-      qEl.focus();
-      addMsg('bot', "Hi! I'm Archen, running right here in your browser. What's up?");
-    } catch (err) {
-      statusEl.textContent = 'Could not load the AI model: ' + (err?.message || err) +
-        ' — try reloading the page, or check your internet connection.';
-      statusEl.style.borderColor = 'var(--err)'; statusEl.style.color = 'var(--err)';
+  /* ── UI helpers ────────────────────────────────────────────── */
+  function showPanel(text, { kind = '', progress = false, actions = [] } = {}) {
+    panelText.textContent = text;
+    panel.className = 'panel' + (kind ? ' ' + kind : '');
+    barWrap.style.display = progress ? '' : 'none'; bar.style.width = '0%';
+    panelActs.textContent = '';
+    for (const a of actions) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'ghost'; b.textContent = a.label;
+      b.addEventListener('click', a.onClick); panelActs.appendChild(b);
     }
   }
+  const hidePanel = () => panel.classList.add('hidden');
+  const fmtMB = b => (b / 1048576).toFixed(0) + ' MB';
 
-  let busy = false;
-  async function send() {
-    const text = qEl.value.trim();
-    if (!text || busy) return;
-    busy = true; qEl.value = ''; qEl.disabled = true; sendEl.disabled = true;
-    addMsg('user', text);
-    history.push({ role: 'user', content: text });
-    const botDiv = addMsg('bot', '');
+  let atBottom = true;
+  msgsEl.addEventListener('scroll', () => {
+    atBottom = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 48;
+    if (atBottom) jumpEl.classList.add('hidden');
+  });
+  const scrollToBottom = () => { msgsEl.scrollTop = msgsEl.scrollHeight; jumpEl.classList.add('hidden'); };
+  const keepInView = () => { if (atBottom) scrollToBottom(); else jumpEl.classList.remove('hidden'); };
+  jumpEl.addEventListener('click', scrollToBottom);
 
+  async function copyText(text, btn) {
+    try { await navigator.clipboard.writeText(text); } catch {
+      const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch {} ta.remove();
+    }
+    if (btn) { const old = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(() => (btn.textContent = old), 1200); }
+  }
+  msgsEl.addEventListener('click', e => {
+    const b = e.target.closest('button[data-copy]');
+    if (b) copyText(b.nextElementSibling?.textContent || '', b);
+  });
+
+  function addUser(text) {
+    const m = document.createElement('div'); m.className = 'm user';
+    const body = document.createElement('div'); body.className = 'body'; body.textContent = text;
+    m.appendChild(body); msgsEl.insertBefore(m, jumpEl); keepInView(); return m;
+  }
+  function addBot({ text = '', streaming = false } = {}) {
+    for (const el of msgsEl.querySelectorAll('.m.last')) el.classList.remove('last');
+    const m = document.createElement('div'); m.className = 'm bot last';
+    const who = document.createElement('div'); who.className = 'who';
+    const mark = document.createElement('span'); mark.className = 'mark'; who.append(mark, 'Archen');
+    const body = document.createElement('div'); body.className = 'body';
+    if (streaming) body.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
+    else body.innerHTML = renderMarkdown(text);
+    const meta = document.createElement('div'); meta.className = 'meta';
+    m.append(who, body, meta); msgsEl.insertBefore(m, jumpEl); keepInView(); return m;
+  }
+  function setMeta(m, { text, perf, canRegenerate }) {
+    const meta = m.querySelector('.meta'); meta.textContent = '';
+    const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy';
+    copy.addEventListener('click', () => copyText(text, copy)); meta.appendChild(copy);
+    if (canRegenerate) {
+      const re = document.createElement('button'); re.type = 'button'; re.textContent = 'Regenerate';
+      re.addEventListener('click', regenerate); meta.appendChild(re);
+    }
+    if (perf) { const p = document.createElement('span'); p.className = 'perf'; p.textContent = perf; meta.appendChild(p); }
+  }
+  function addNote(text, action) {
+    const n = document.createElement('div'); n.className = 'note'; n.textContent = text + (action ? ' ' : '');
+    if (action) { const b = document.createElement('button'); b.type = 'button'; b.textContent = action.label; b.addEventListener('click', action.onClick); n.appendChild(b); }
+    msgsEl.insertBefore(n, jumpEl); keepInView(); return n;
+  }
+
+  let emptyEl = null;
+  function showEmpty() {
+    hideEmpty();
+    emptyEl = document.createElement('div'); emptyEl.className = 'empty';
+    const h = document.createElement('h1'); h.textContent = 'What can I help with?';
+    const p = document.createElement('p'); p.textContent = 'Runs on your device. Nothing you type is sent anywhere.';
+    const chips = document.createElement('div'); chips.className = 'chips';
+    for (const c of CHIPS) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = c.label;
+      b.addEventListener('click', () => { track('chip_click', { chip: c.label }); qEl.value = c.fill; autosize(); qEl.focus(); qEl.setSelectionRange(qEl.value.length, qEl.value.length); });
+      chips.appendChild(b);
+    }
+    emptyEl.append(h, p, chips); msgsEl.insertBefore(emptyEl, jumpEl);
+  }
+  const hideEmpty = () => { if (emptyEl) { emptyEl.remove(); emptyEl = null; } };
+
+  let ctaShown = false;
+  function showCta() {
+    if (ctaShown || !ctaUrl) return; ctaShown = true;
+    const box = document.createElement('div'); box.className = 'cta';
+    const p = document.createElement('p');
+    p.textContent = ctaIsWaitlist
+      ? 'This is a small preview model. The full Archen app runs a much more capable model with the same on-device privacy.'
+      : 'Liked this? The full Archen app runs a much more capable model — same on-device privacy, far better answers.';
+    const a = document.createElement('a'); a.href = ctaUrl; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = ctaIsWaitlist ? 'Join the wait-list →' : 'Get the full Archen app →';
+    a.addEventListener('click', () => track('cta_click', { where: 'inline' }));
+    box.append(p, a); msgsEl.insertBefore(box, jumpEl); keepInView();
+  }
+  if (ctaUrl) {
+    footCta.href = ctaUrl; footCta.textContent = ctaIsWaitlist ? 'Join the wait-list' : 'Get the full Archen app';
+    footCta.addEventListener('click', () => track('cta_click', { where: 'footer' }));
+    footCta.classList.remove('hidden'); footSep1.classList.remove('hidden');
+  } else {
+    console.warn('[Archen] No CONFIG.APP_URL or CONFIG.WAITLIST_URL set — the call-to-action is hidden.');
+  }
+
+  /* ── Capability checks ─────────────────────────────────────── */
+  function checkSupport() {
+    if (typeof WebAssembly !== 'object' || typeof WebAssembly.instantiate !== 'function')
+      return 'This browser cannot run WebAssembly, which Archen needs. Try a recent Chrome, Edge, Firefox or Safari.';
+    try {
+      const simd = new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]);
+      if (!WebAssembly.validate(simd)) return 'This browser is missing WebAssembly SIMD support, which Archen needs. Try updating your browser.';
+    } catch { return 'This browser is missing WebAssembly SIMD support, which Archen needs. Try updating your browser.'; }
+    if (!('caches' in window) && !navigator.storage?.getDirectory)
+      return 'This browser has no storage available for the model — private/incognito mode often blocks it. Try a normal window.';
+    return null;
+  }
+  const deviceMemoryGB = () => (typeof navigator.deviceMemory === 'number' ? navigator.deviceMemory : null);
+  const isMobile = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const isRiskyDevice = () => (deviceMemoryGB() !== null && deviceMemoryGB() <= 4) || isMobile();
+  const canRunSmart = () => !isMobile() && deviceMemoryGB() !== null && deviceMemoryGB() >= MODELS.smart.minMemoryGB;
+
+  /* ── Model tier ────────────────────────────────────────────── */
+  let tier = MODELS[store.get(KEYS.tier)] ? store.get(KEYS.tier) : 'fast';
+  function renderTier() {
+    for (const b of tierEl.querySelectorAll('button')) { b.setAttribute('aria-pressed', String(b.dataset.tier === tier)); b.title = MODELS[b.dataset.tier].sizeHint; }
+  }
+  const setTierButtons = on => { for (const b of tierEl.querySelectorAll('button')) b.disabled = !on; };
+  function setStatus(text, on) { statusEl.textContent = text; statusEl.classList.toggle('on', !!on); statusEl.classList.remove('hidden'); }
+
+  /* ── Model loading ─────────────────────────────────────────── */
+  const WASM_PATHS = { default: 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.6.0/esm/wasm/wllama.wasm' };
+  let wllama = new Wllama(WASM_PATHS);
+  let downloadCtl = null, ready = false;
+
+  async function isModelCached(model) {
+    try { const stem = model.file.replace(/\.gguf$/, ''); return (await wllama.cacheManager.list()).some(e => (e.name || '').includes(stem)); }
+    catch { return false; }
+  }
+  const safeIsMultithread = () => { try { return wllama.isMultithread(); } catch { return false; } };
+  const safeThreads = () => { try { return wllama.getNumThreads(); } catch { return 1; } };
+
+  async function load() {
+    const model = MODELS[tier];
+    ready = false; setTierButtons(false); qEl.disabled = true; sendEl.disabled = true;
+    setStatus(`Loading ${model.label.toLowerCase()}…`, false);
+    downloadCtl = new AbortController();
+    const cached = await isModelCached(model);
+    track('load_start', { model: tier, cached });
+    showPanel(cached ? `Loading the ${model.label.toLowerCase()} model from this device…`
+                     : `Downloading the ${model.label.toLowerCase()} model (${model.sizeHint}) into your browser. It is saved afterwards, so this only happens once.`,
+      { progress: true, actions: [{ label: 'Cancel', onClick: () => downloadCtl?.abort() }] });
+    try {
+      await wllama.loadModelFromHF(model, {
+        n_ctx: N_CTX, signal: downloadCtl.signal,
+        progressCallback: ({ loaded, total }) => {
+          const pct = total ? Math.round((loaded / total) * 100) : 0; bar.style.width = pct + '%';
+          panelText.textContent = total ? `Downloading the ${model.label.toLowerCase()} model… ${pct}% (${fmtMB(loaded)} of ${fmtMB(total)}) — saved after this, so it only happens once.`
+                                        : `Downloading the ${model.label.toLowerCase()} model… ${fmtMB(loaded)}`;
+        },
+      });
+    } catch (err) {
+      setTierButtons(true);
+      if (downloadCtl.signal.aborted) {
+        track('load_cancelled', { model: tier }); setStatus('Cancelled', false);
+        showPanel('Download cancelled.', { actions: [{ label: 'Try again', onClick: load }] });
+      } else if (tier !== 'fast') {
+        track('load_error', { model: tier, reason: String(err?.name || 'unknown') });
+        addNote(`Could not load the ${model.label.toLowerCase()} model (${err?.message || err}). Using the fast one instead.`);
+        await switchTier('fast', { silent: true });
+      } else {
+        track('load_error', { model: tier, reason: String(err?.name || 'unknown') }); setStatus('Failed to load', false);
+        showPanel('Could not load the AI model: ' + (err?.message || err) + ' — check your connection and try again.',
+          { kind: 'err', actions: [{ label: 'Try again', onClick: load }] });
+      }
+      return;
+    }
+    ready = true; hidePanel(); setTierButtons(true);
+    const mt = safeIsMultithread();
+    track('load_complete', { model: tier, cached, multithread: mt });
+    setStatus(`On-device · ${model.label} · ${mt ? safeThreads() + ' threads' : '1 thread'}`, true);
+    qEl.disabled = false; sendEl.disabled = false; qEl.placeholder = 'Message Archen…';
+    resetBtn.classList.remove('hidden'); if (ctaUrl) footSep2.classList.remove('hidden');
+    if (!isMobile()) qEl.focus();
+
+    if (history.length === 0 && !msgsEl.querySelector('.m')) showEmpty();
+    else if (msgsEl.querySelector('.m')) addNote(`Now using the ${model.label.toLowerCase()} model.`);
+    if (!mt) addNote('Running single-threaded — replies will be slower than usual.');
+    if (tier === 'fast' && canRunSmart()) addNote('Your device has room for the larger model, which gives better answers.', { label: 'Switch to Smarter', onClick: () => switchTier('smart') });
+  }
+
+  async function switchTier(next, { silent = false } = {}) {
+    if (!MODELS[next] || next === tier || busy) return;
+    if (!silent) track('model_switch', { from: tier, to: next });
+    tier = next; store.set(KEYS.tier, tier); renderTier();
+    try { await wllama.exit(); } catch {}
+    wllama = new Wllama(WASM_PATHS); await load();
+  }
+  tierEl.addEventListener('click', e => {
+    const b = e.target.closest('button[data-tier]'); if (!b) return;
+    if (b.dataset.tier === 'smart' && !canRunSmart() && isRiskyDevice()) {
+      showPanel(`The larger model is ${MODELS.smart.sizeHint} and needs a good amount of memory. On this device it may fail to load or slow the browser down.`,
+        { kind: 'warn', actions: [{ label: 'Try it anyway', onClick: () => { hidePanel(); switchTier('smart'); } }, { label: 'Keep Fast', onClick: hidePanel }] });
+      return;
+    }
+    switchTier(b.dataset.tier);
+  });
+
+  /* ── Chat ──────────────────────────────────────────────────── */
+  const history = [];
+  let busy = false, genCtl = null;
+  const recentHistory = () => history.slice(-MAX_HISTORY_TURNS * 2);
+  const saveChat = () => store.set(KEYS.chat, JSON.stringify(history.slice(-MAX_SAVED_MESSAGES)));
+
+  function setBusy(on) {
+    busy = on; qEl.disabled = on; setTierButtons(!on);
+    sendEl.classList.toggle('hidden', on); stopEl.classList.toggle('hidden', !on);
+    if (!on) { if (!isMobile()) qEl.focus(); }
+  }
+
+  async function generate() {
+    const turn = history.filter(m => m.role === 'user').length;
+    const m = addBot({ streaming: true }); const body = m.querySelector('.body');
+    genCtl = new AbortController();
+    let full = '', tokens = 0, t0 = performance.now(), tFirst = 0, raf = 0;
+    const paint = () => { raf = 0; body.innerHTML = renderMarkdown(full); body.classList.add('cursor'); keepInView(); };
     try {
       const stream = await wllama.createChatCompletion({
-        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...history],
-        stream: true,
-        max_tokens: 300,
-        temperature: 0.6,
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...recentHistory()],
+        stream: true, max_tokens: MAX_TOKENS, cache_prompt: true, abortSignal: genCtl.signal, ...SAMPLING,
       });
-      let full = '';
       for await (const chunk of stream) {
         const delta = chunk?.choices?.[0]?.delta?.content || '';
-        if (delta) { full += delta; botDiv.textContent = full; msgsEl.scrollTop = msgsEl.scrollHeight; }
+        if (!delta) continue;
+        if (!tFirst) tFirst = performance.now();
+        full += delta; tokens++;
+        if (!raf) raf = requestAnimationFrame(paint);
       }
-      history.push({ role: 'assistant', content: full });
+      if (raf) cancelAnimationFrame(raf);
+      body.innerHTML = renderMarkdown(full); body.classList.remove('cursor');
+      history.push({ role: 'assistant', content: full }); saveChat();
+      const secs = (performance.now() - (tFirst || t0)) / 1000;
+      const perf = `${((performance.now() - t0) / 1000).toFixed(1)}s · ${secs > 0 ? (tokens / secs).toFixed(0) : '–'} tok/s · ${MODELS[tier].label.toLowerCase()}`;
+      setMeta(m, { text: full, perf, canRegenerate: true });
+      track('reply_complete', { model: tier, tokens, ms: Math.round(performance.now() - t0) });
+      if (turn >= 2) showCta();
     } catch (err) {
-      botDiv.classList.add('err');
-      botDiv.textContent = 'Something went wrong: ' + (err?.message || err);
-    } finally {
-      busy = false; qEl.disabled = false; sendEl.disabled = false; qEl.focus();
-    }
+      if (raf) cancelAnimationFrame(raf);
+      if (genCtl.signal.aborted) {
+        if (full) { body.innerHTML = renderMarkdown(full); body.classList.remove('cursor'); history.push({ role: 'assistant', content: full }); saveChat(); setMeta(m, { text: full, perf: 'stopped', canRegenerate: true }); }
+        else m.remove();
+      } else {
+        track('generate_error', { model: tier });
+        m.classList.add('err'); body.classList.remove('cursor'); body.textContent = 'Something went wrong: ' + (err?.message || err);
+        history.pop(); saveChat();
+      }
+    } finally { genCtl = null; setBusy(false); keepInView(); }
   }
 
-  sendEl.addEventListener('click', send);
-  qEl.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+  async function send() {
+    const text = qEl.value.trim();
+    if (!text || busy || !ready) return;
+    qEl.value = ''; autosize(); hideEmpty(); setBusy(true);
+    addUser(text); history.push({ role: 'user', content: text });
+    const turn = history.filter(m => m.role === 'user').length;
+    if (turn === 1) track('first_message', { model: tier });
+    if (turn === 3) track('turn_3', { model: tier });
+    await generate();
+  }
 
-  init();
+  async function regenerate() {
+    if (busy || !ready) return;
+    const last = history[history.length - 1];
+    if (!last || last.role !== 'assistant') return;
+    history.pop(); const bots = msgsEl.querySelectorAll('.m.bot'); bots[bots.length - 1]?.remove();
+    track('regenerate', { model: tier }); setBusy(true); await generate();
+  }
+
+  function autosize() { qEl.style.height = 'auto'; qEl.style.height = Math.min(qEl.scrollHeight, 160) + 'px'; }
+  qEl.addEventListener('input', autosize);
+  qEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+  });
+  // The textarea is disabled while generating, so Escape has to be global.
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && busy) { track('generation_stopped', { via: 'esc' }); genCtl?.abort(); } });
+  formEl.addEventListener('submit', e => { e.preventDefault(); send(); });
+  stopEl.addEventListener('click', () => { track('generation_stopped'); genCtl?.abort(); });
+  resetBtn.addEventListener('click', () => {
+    if (busy) return;
+    history.length = 0; ctaShown = false; store.del(KEYS.chat);
+    for (const el of [...msgsEl.children]) if (el !== jumpEl) el.remove();
+    showEmpty(); if (!isMobile()) qEl.focus(); track('chat_reset');
+  });
+
+  function restoreChat() {
+    try {
+      const saved = JSON.parse(store.get(KEYS.chat) || '[]');
+      if (!Array.isArray(saved) || !saved.length) return false;
+      for (const msg of saved) {
+        if (msg.role === 'user' && typeof msg.content === 'string') { addUser(msg.content); history.push(msg); }
+        else if (msg.role === 'assistant' && typeof msg.content === 'string') { const m = addBot({ text: msg.content }); history.push(msg); setMeta(m, { text: msg.content, canRegenerate: false }); }
+      }
+      const lastBot = [...msgsEl.querySelectorAll('.m.bot')].pop();
+      if (lastBot && history[history.length - 1]?.role === 'assistant') setMeta(lastBot, { text: history[history.length - 1].content, canRegenerate: true });
+      addNote('Restored your last chat on this device.', { label: 'Start fresh', onClick: () => resetBtn.click() });
+      return true;
+    } catch { return false; }
+  }
+
+  /* ── Boot ──────────────────────────────────────────────────── */
+  (async function boot() {
+    renderTier();
+    const unsupported = checkSupport();
+    if (unsupported) {
+      track('unsupported_browser'); showPanel(unsupported, { kind: 'err' }); setTierButtons(false);
+      qEl.placeholder = 'Not supported in this browser'; footNote.textContent = 'Archen needs a recent desktop browser to run in-tab.'; return;
+    }
+    if (tier === 'smart' && isMobile()) { tier = 'fast'; renderTier(); }
+    restoreChat();
+    if (isRiskyDevice() && !(await isModelCached(MODELS[tier]))) {
+      track('risky_device_prompt');
+      showPanel(`Heads up: this downloads a ${MODELS[tier].sizeHint} model and runs it in memory. On phones and low-memory machines the tab may run out of memory. A desktop browser works best.`,
+        { kind: 'warn', actions: [{ label: 'Continue anyway', onClick: () => { track('risky_device_continue'); load(); } }] });
+      return;
+    }
+    load();
+  })();
 </script>
 </body>
 </html>

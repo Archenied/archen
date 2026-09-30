@@ -1,0 +1,17 @@
+# Code owners are requested for review automatically on every pull request.
+#
+# TODO after the transfer: replace the placeholders with real handles or
+# teams. Team syntax is @org-name/team-name and only works once the repo is
+# owned by the organization.
+
+# Default owner for everything not matched below.
+*                       @Archenied
+
+# The demo page is the product surface: copy, CTA and funnel events all live
+# here, so product and engineering should both look at changes to it.
+/index.html             @Archenied
+
+# Deployment behaviour. Changing these silently changes how fast the model
+# runs for every visitor, so they need a deliberate review.
+/_headers               @Archenied
+/.github/               @Archenied

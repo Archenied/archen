@@ -1,0 +1,13 @@
+# Cross-origin isolation headers.
+#
+# wllama only uses its multi-threaded WASM build when SharedArrayBuffer is
+# available, and that requires the page to be cross-origin isolated. Without
+# these headers it silently falls back to a single thread, which is several
+# times slower.
+#
+# GitHub Pages cannot serve custom headers, so this file has no effect there.
+# It is read by Cloudflare Pages and Netlify. Moving the site to either of
+# them is what actually turns multi-threading on.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
