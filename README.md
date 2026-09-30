@@ -52,21 +52,32 @@ Load, activation and generation events carry `model: fast|smart` so the two tier
 `load_start` → `load_complete` → `first_message` → `cta_click` is the funnel.
 Until those four numbers exist, every other change to this page is guesswork.
 
-## Hosting
+## Hosting and speed
 
-`.nojekyll` is present for GitHub Pages, which serves this fine — but GitHub
-Pages **cannot set response headers**. Without `Cross-Origin-Opener-Policy` and
-`Cross-Origin-Embedder-Policy`, `SharedArrayBuffer` is unavailable and wllama
-falls back to its single-threaded build, which is several times slower. The page
-tells the visitor when this happens.
+Two things decide how fast the model runs, and both are set up here:
 
-`_headers` ships those headers for **Cloudflare Pages** or **Netlify**. Moving the
-site to either one is the single largest speed win available.
+**Threads.** wllama runs multi-threaded only when `SharedArrayBuffer` exists,
+which browsers allow only on cross-origin-isolated pages (served with
+`Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy`). GitHub Pages
+cannot send headers, so `coi-serviceworker.js` adds them to every response and
+a bootstrap script in `index.html` registers it and reloads once on the first
+visit. After that the engine uses `hardwareConcurrency / 2` threads instead of
+one. `_headers` sets the same headers natively on Cloudflare Pages or Netlify;
+with those the worker registers but changes nothing.
 
-Caveat to verify on staging before switching: `COEP: require-corp` blocks
-cross-origin subresources that are not CORS- or CORP-enabled. The jsDelivr and
-Hugging Face fetches here are CORS-enabled and are expected to survive, but
-confirm the model still downloads after the move.
+Every cross-origin resource (wllama from jsDelivr, the model from Hugging Face)
+is fetched with CORS and served with `Access-Control-Allow-Origin`, which is
+what `require-corp` needs. If a browser refuses the worker (private mode, some
+enterprise policies), the page still works single-threaded and says so.
+
+**GPU.** wllama 3.6 carries a WebGPU backend and uses it whenever
+`navigator.gpu` exists, so Chrome and Edge on a desktop run the model on the
+GPU without any configuration. The header pill shows `GPU` or `CPU` and the
+thread count, and `load_complete` events carry `gpu`, `isolated` and
+`threads`, so real-world speed can be read from `reply_complete` (`tokens`,
+`ms`) by configuration.
+
+`.nojekyll` is present for GitHub Pages.
 
 ## Models and answer quality
 

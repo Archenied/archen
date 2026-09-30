@@ -5,6 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Archen — Private AI that runs on your device</title>
 <meta name="description" content="Try Archen in your browser. Your messages never leave your device — no server, no account, no logging.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Cdefs%3E%3ClinearGradient id=%27g%27 x1=%270%27 y1=%270%27 x2=%271%27 y2=%271%27%3E%3Cstop stop-color=%27%236ee7f5%27/%3E%3Cstop offset=%271%27 stop-color=%27%23a78bfa%27/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2714%27 fill=%27url(%23g)%27/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://huggingface.co" crossorigin>
+<link rel="dns-prefetch" href="https://cdn-lfs.hf.co">
+<script>
+  // Turn on cross-origin isolation (SharedArrayBuffer → multi-threaded model)
+  // on hosts that cannot send the headers themselves. Registers the worker on
+  // the first visit and reloads once; every later visit is already isolated.
+  (function () {
+    if (window.crossOriginIsolated || !('serviceWorker' in navigator) || window.top !== window) return;
+    var flag = 'archen.coi.reloaded';
+    var already = false; try { already = sessionStorage.getItem(flag) === '1'; } catch (e) {}
+    navigator.serviceWorker.register('./coi-serviceworker.js', { scope: './' }).then(function (reg) {
+      if (already) return;                         // registered but still not isolated: give up quietly
+      try { sessionStorage.setItem(flag, '1'); } catch (e) {}
+      if (reg.active && !navigator.serviceWorker.controller) { location.reload(); return; }
+      reg.addEventListener('updatefound', function () {
+        var w = reg.installing; if (!w) return;
+        w.addEventListener('statechange', function () { if (w.state === 'activated') location.reload(); });
+      });
+      if (reg.active && navigator.serviceWorker.controller && !window.crossOriginIsolated) location.reload();
+    }).catch(function () {});
+  })();
+</script>
 <style>
   :root {
     color-scheme: dark;
@@ -80,7 +104,7 @@
   .m.user .body { max-width:85%; padding:10px 14px; border-radius:16px 16px 4px 16px; font-size:14.5px; line-height:1.5;
                   background:linear-gradient(135deg,var(--cyan),var(--violet)); color:var(--user-fg); white-space:pre-wrap; }
   .m.bot { align-items:flex-start; }
-  .m.bot .body { max-width:100%; font-size:14.5px; line-height:1.6; padding:2px 2px 0 0; overflow-wrap:anywhere; }
+  .m.bot .body { width:100%; max-width:100%; font-size:14.5px; line-height:1.6; padding:2px 2px 0 0; overflow-wrap:anywhere; }
   .m.bot.err .body { color:var(--err); }
   .m .who { font-size:11px; color:var(--dim); margin-bottom:5px; display:flex; align-items:center; gap:6px; }
   .m .who .mark { width:14px; height:14px; border-radius:4px; background:linear-gradient(135deg,var(--cyan),var(--violet)); }
@@ -92,7 +116,7 @@
   .body code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.9em;
                background:var(--bg3); border:1px solid var(--line); border-radius:5px; padding:.08em .35em; }
   .body pre { position:relative; background:var(--bg3); border:1px solid var(--line); border-radius:10px;
-              padding:12px 12px; margin:.4em 0 .7em; overflow-x:auto; }
+              padding:12px 72px 12px 12px; margin:.4em 0 .7em; overflow-x:auto; }
   .body pre code { background:none; border:none; padding:0; font-size:.86em; line-height:1.5; white-space:pre; }
   .body pre .copy { position:absolute; top:6px; right:6px; }
   .body a { color:var(--cyan); }
@@ -418,7 +442,7 @@
     const a = document.createElement('a'); a.href = ctaUrl; a.target = '_blank'; a.rel = 'noopener';
     a.textContent = CTA.button;
     a.addEventListener('click', () => track('cta_click', { where: 'inline', kind: CTA.kind }));
-    box.append(p, a); msgsEl.insertBefore(box, jumpEl); keepInView();
+    box.append(p, a); msgsEl.insertBefore(box, jumpEl); scrollToBottom();
   }
   if (ctaUrl) {
     footCta.href = ctaUrl; footCta.textContent = CTA.footer;
@@ -464,6 +488,10 @@
   }
   const safeIsMultithread = () => { try { return wllama.isMultithread(); } catch { return false; } };
   const safeThreads = () => { try { return wllama.getNumThreads(); } catch { return 1; } };
+  // wllama uses its WebGPU backend whenever navigator.gpu exists (unless
+  // n_gpu_layers is 0). This reports availability, which is what we can know
+  // from here; the engine decides layer by layer.
+  const hasGpu = !!navigator.gpu;
 
   async function load() {
     const model = MODELS[tier];
@@ -502,15 +530,17 @@
     }
     ready = true; hidePanel(); setTierButtons(true);
     const mt = safeIsMultithread();
-    track('load_complete', { model: tier, cached, multithread: mt });
-    setStatus(`On-device · ${model.label} · ${mt ? safeThreads() + ' threads' : '1 thread'}`, true);
+    track('load_complete', { model: tier, cached, multithread: mt, threads: mt ? safeThreads() : 1, gpu: hasGpu, isolated: !!window.crossOriginIsolated });
+    setStatus(`On-device · ${model.label} · ${hasGpu ? 'GPU' : 'CPU'} · ${mt ? safeThreads() + ' threads' : '1 thread'}`, true);
     qEl.disabled = false; sendEl.disabled = false; qEl.placeholder = 'Message Archen…';
     resetBtn.classList.remove('hidden'); if (ctaUrl) footSep2.classList.remove('hidden');
     if (!isMobile()) qEl.focus();
 
     if (history.length === 0 && !msgsEl.querySelector('.m')) showEmpty();
     else if (msgsEl.querySelector('.m')) addNote(`Now using the ${model.label.toLowerCase()} model.`);
-    if (!mt) addNote('Running single-threaded — replies will be slower than usual.');
+    if (!mt) addNote(window.crossOriginIsolated
+      ? 'Running single-threaded on this device — replies will be slower than usual.'
+      : 'Running single-threaded: this browser blocked the worker that enables multi-threading. Replies will be slower than usual.');
     if (tier === 'fast' && canRunSmart()) addNote('Your device has room for the larger model, which gives better answers.', { label: 'Switch to Smarter', onClick: () => switchTier('smart') });
   }
 
